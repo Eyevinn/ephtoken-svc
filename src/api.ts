@@ -14,7 +14,11 @@ export interface HealthcheckOptions {
   title: string;
 }
 
-const healthcheck: FastifyPluginCallback<HealthcheckOptions> = (fastify, opts, next) => {
+const healthcheck: FastifyPluginCallback<HealthcheckOptions> = (
+  fastify,
+  opts,
+  next
+) => {
   fastify.get<{ Reply: Static<typeof HelloWorld> }>(
     '/',
     {
@@ -32,8 +36,65 @@ const healthcheck: FastifyPluginCallback<HealthcheckOptions> = (fastify, opts, n
   next();
 };
 
+export interface ApiTokenOptions {
+  openAiApiKey: string;
+}
+const OpenAiResponse = Type.Object({
+  client_secret: Type.Object({
+    value: Type.String(),
+    expires_at: Type.Number()
+  })
+});
+
+const apiToken: FastifyPluginCallback<ApiTokenOptions> = (
+  fastify,
+  opts,
+  next
+) => {
+  fastify.get<{ Reply: Static<typeof OpenAiResponse> | { message: string } }>(
+    '/session',
+    {
+      schema: {
+        description: 'Create a new ephmeral token',
+        response: {
+          200: OpenAiResponse,
+          500: Type.Object({ message: Type.String() })
+        }
+      }
+    },
+    async (_, reply) => {
+      try {
+        const response = await fetch(
+          'https://api.openai.com/v1/realtime/sessions',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${opts.openAiApiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-realtime-preview-2024-12-17',
+              voice: 'verse'
+            })
+          }
+        );
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const json = await response.json();
+        reply.send(json);
+      } catch (error) {
+        reply.code(500).send({ message: (error as Error).message });
+      }
+    }
+  );
+
+  next();
+};
+
 export interface ApiOptions {
   title: string;
+  openAiApiKey: string;
 }
 
 export default (opts: ApiOptions) => {
@@ -60,6 +121,7 @@ export default (opts: ApiOptions) => {
 
   api.register(healthcheck, { title: opts.title });
   // register other API routes here
+  api.register(apiToken, { openAiApiKey: opts.openAiApiKey });
 
   return api;
-}
+};
